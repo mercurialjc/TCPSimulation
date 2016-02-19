@@ -1,0 +1,81 @@
+#!/usr/bin/env perl
+
+# CALLING THIS SCRIPT:
+# ./throughput {trace file name} {output .csv file name} {node #}
+# EXAMPLE: ./throughput 1_1mb_tahoe_1000.tr 1_1mb_tahoe.csv 3
+
+$INPUT_FILE = $ARGV[0];
+$OUTPUT_FILE = $ARGV[1];
+$DEST_NODE = $ARGV[2];
+
+open (FILE, $INPUT_FILE);
+
+$packet_count = 0;
+$start_time = 0;
+$packet_size = 1000;
+
+%output_data = ();
+
+while (<FILE>){
+	chomp;
+	($event, $time, $from, $to, $type, $size, $etc, $fid, $src, $dest, $seqnum, $pktid) = split('\s');	
+
+	if ($event eq '+' && $to eq $DEST_NODE && $type eq 'tcp'){
+		if ($pktid eq '0'){
+			$start_time = $time;
+		} else{
+			$packet_count++;
+			$throughput = ((($packet_count * $packet_size * 8) / 1000000) / ($time - $start_time));
+			$output_data{$time} = $throughput;
+		}
+	}
+}
+	
+close (FILE);
+
+@lines = ();
+
+if (-e $OUTPUT_FILE){
+	open($readfile, '<', $OUTPUT_FILE) or die "Could not open file '$OUTPUT_FILE' $!";
+	while (<$readfile>){
+		chomp;
+		push(@lines, $_);
+	}
+	close $readfile;
+}
+
+open($writefile, '>', $OUTPUT_FILE) or die "Could not open file '$OUTPUT_FILE' $!";
+
+if (@lines){
+	$columns = $lines[0] =~ tr/,//;
+	print $writefile ($lines[0] . "Average throughput:,$throughput,\n");
+	print $writefile ($lines[1] . "Time(s),$INPUT_FILE,\n");
+	@keys = (sort {$a <=> $b} (keys(%output_data)));
+	
+	for (my $j=2; $j < scalar @lines; $j++){
+		$line_col = $lines[$j] =~ tr/,//;
+		for (my $i=0; $i < ($columns - $line_col); $i++){
+			print $writefile ',';
+		}
+		print $writefile ($lines[$j] . "$keys[$j-2],$output_data{$keys[$j-2]},\n");
+	}
+	if ((scalar @keys) > ((scalar @lines) - 2)){
+		for (my $k=scalar @lines; $k < scalar @keys; $k++){
+			for (my $m=0; $m < $columns; $m++){
+				print $writefile ',';
+			}
+
+			print $writefile "$keys[$k],$output_data{$keys[$k]},\n";
+		}
+	}
+}else{
+	print $writefile ("Average throughput:,$throughput,\n");
+	print $writefile "Time(s),$INPUT_FILE,\n";
+	foreach my $key (sort {$a <=> $b} (keys(%output_data))){
+		print $writefile "$key,$output_data{$key},\n";
+	}
+}
+
+close $writefile;
+
+exit;

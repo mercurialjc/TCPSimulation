@@ -1,0 +1,94 @@
+#!/usr/bin/env perl
+
+#CALLING THIS SCRIPT:
+# ./endtoenddelay {trace file name} {source node} {destination node}
+# EXAMPLE: ./endtoenddelay out.tr 0 3
+
+$INPUT_FILE = $ARGV[0];
+$OUTPUT_FILE = $ARGV[1];
+$SRC_NODE = $ARGV[2];
+$DEST_NODE = $ARGV[3];
+
+open (FILE, $INPUT_FILE);
+
+$sent_cnt = 0;
+$recv_cnt = 0;
+
+$num_delays = 0;
+$total_delay = 0;
+
+@send_times = ();
+@ack_times = ();
+@tcp_packets = ();
+@ack_packets = ();
+
+%tcp_times = ();
+%end_to_end_delays = ();
+
+while (<FILE>){
+	chomp;
+	($event, $time, $from, $to, $type, $size, $etc, $fid, $src, $dest, $seqnum, $pktid) = split('\s');
+	
+	if ($event eq '+' && $from eq $SRC_NODE && $type eq 'tcp'){
+		$tcp_times{$pktid} = $time;
+	}
+
+	if ($event eq 'r' && $to eq $DEST_NODE && $type eq 'tcp'){
+		if (exists $tcp_times{$pktid}){
+			$end_to_end_delays{$time} = $time - $tcp_times{$pktid};
+			$num_delays++;
+			$total_delay += ($time - $tcp_times{$pktid});
+		}
+	}
+}
+
+close (FILE);
+
+$avg_delay = $total_delay / $num_delays;
+
+@lines = ();
+
+if (-e $OUTPUT_FILE){
+	open($readfile, '<', $OUTPUT_FILE) or die "Could not open file '$OUTPUT_FILE' $!";
+	while (<$readfile>){
+		chomp;
+		push(@lines, $_);
+	}
+	close $readfile;
+}
+
+open(my $writefile, '>', $OUTPUT_FILE) or die "Could not open file '$OUTPUT_FILE' $!";
+
+if (@lines){
+	$columns = $lines[0] =~ tr/,//;
+	print $writefile ($lines[0] . "Average delay:,$avg_delay,\n");
+	print $writefile ($lines[1] . "Time(s),$INPUT_FILE,\n");
+	@keys = (sort {$a <=> $b} (keys(%end_to_end_delays)));
+
+	for (my $j=2; $j < scalar @lines; $j++){
+		$line_col = $lines[$j] =~ tr/,//;
+		for (my $i=0; $i < ($columns - $line_col); $i++){
+			print $writefile ',';
+		}
+		print $writefile ($lines[$j] . "$keys[$j-2],$end_to_end_delays{$keys[$j-2]},\n");
+	}
+	if ((scalar @keys) > ((scalar @lines) - 2)){
+		for (my $k=scalar @lines; $k < scalar @keys; $k++){
+			for (my $m=0; $m < $columns; $m++){
+				print $writefile ',';
+			}
+
+			print $writefile "$keys[$k],$end_to_end_delays{$keys[$k]},\n";
+		}
+	}
+}else{
+	print $writefile "Average delay:,$avg_delay,\n";
+	print $writefile "Time(s),$INPUT_FILE,\n";
+
+	foreach my $key (sort {$a <=> $b} (keys(%end_to_end_delays))){ 
+		print $writefile "$key,$end_to_end_delays{$key},\n";
+	}
+}
+close $writefile;
+
+exit;

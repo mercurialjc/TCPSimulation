@@ -1,0 +1,87 @@
+#!/usr/bin/env perl
+use feature 'say';
+
+$INPUT_FILE = $ARGV[0];
+$OUTPUT_FILE = $ARGV[1];
+$SRC_NODE = $ARGV[2];
+
+open (FILE, $INPUT_FILE);
+
+$drop_count = 0;
+$sent_count = 0;
+$total_count = 0;
+
+$START_TIME = 30;
+
+%drop_rates = ();
+
+while (<FILE>){
+	chomp;
+	($event, $time, $from, $to, $type, $size, $etc, $fid, $src, $dest, $seqnum, $pktid) = split('\s');
+	if ($event eq '+' && $from eq $SRC_NODE && $type eq 'tcp' && ($time >= $START_TIME)){
+		$sent_count++;
+		$total_count++;
+	}
+	if ($event eq 'd' && $type eq 'tcp' && $src && ($time >= $START_TIME)){
+		$drop_count++;
+		$total_count++;
+		$drop_rates{$time} = ($drop_count / $total_count);
+	}
+}
+
+close (FILE);
+
+if ($total_count){
+	$avg_droprate = $drop_count/$total_count;
+} else{
+	$avg_droprate = 0;
+}
+
+@lines = ();
+
+if (-e $OUTPUT_FILE){
+	open($readfile, '<', $OUTPUT_FILE) or die "Could not open file '$OUTPUT_FILE' $!";
+	while (<$readfile>){
+		chomp;
+		push(@lines, $_);
+	}
+	close $readfile;
+}
+
+open($writefile, '>', $OUTPUT_FILE) or die "Could not open file '$OUTPUT_FILE' $!";
+
+
+
+if (@lines){
+	$columns = $lines[0] =~ tr/,//;
+	print $writefile ($lines[0] . "Average droprate:,$avg_droprate,\n");
+	print $writefile ($lines[1] . "Time(s),$INPUT_FILE,\n");
+	@keys = (sort {$a <=> $b} (keys(%drop_rates)));
+
+	for (my $j=2; $j < scalar @lines; $j++){
+		$line_col = $lines[$j] =~ tr/,//;
+		for (my $i=0; $i < ($columns - $line_col); $i++){
+			print $writefile ',';
+		}
+		print $writefile ($lines[$j] . "$keys[$j-2],$drop_rates{$keys[$j-2]},\n");
+	}
+	if ((scalar @keys) > ((scalar @lines) - 2)){
+		for (my $k=scalar @lines; $k < scalar @keys; $k++){
+			for (my $m=0; $m < $columns; $m++){
+				print $writefile ',';
+			}
+
+			print $writefile "$keys[$k],$drop_rates{$keys[$k]},\n";
+		}
+	}
+}else{
+	print $writefile ("Average droprate:,$avg_droprate,\n");
+	print $writefile "Time(s),$INPUT_FILE,\n";
+	foreach my $key (sort {$a <=> $b} (keys(%drop_rates))){
+		print $writefile "$key,$drop_rates{$key},\n";
+	}
+}
+
+close $writefile;
+
+exit;
